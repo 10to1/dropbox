@@ -51,10 +51,6 @@ module Dropbox
     # Begins the authorization process. Provide the OAuth key and secret of your
     # API account, assigned by Dropbox. This is the first step in the
     # authorization process.
-    #
-    # Options:
-    #
-    # +ssl+:: If true, uses SSL to connect to the Dropbox API server.
 
     def initialize(oauth_key, oauth_secret, options={})
       @proxy = options[:proxy] || ENV["HTTP_PROXY"] || ENV["http_proxy"]
@@ -124,10 +120,10 @@ module Dropbox
     # Returns the recreated instance.
 
     def self.deserialize(data)
-      consumer_key, consumer_secret, authorized, token, token_secret, ssl, mode = YAML.load(StringIO.new(data))
+      consumer_key, consumer_secret, authorized, token, token_secret, mode = YAML.load(StringIO.new(data))
       raise ArgumentError, "Must provide a properly serialized #{self.to_s} instance" unless [ consumer_key, consumer_secret, token, token_secret ].all? and authorized == true or authorized == false
 
-      session = self.new(consumer_key, consumer_secret, :ssl => ssl, :already_authorized => authorized)
+      session = self.new(consumer_key, consumer_secret, :already_authorized => authorized)
       if authorized then
         session.set_access_token token, token_secret
       else
