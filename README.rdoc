@@ -1,3 +1,7 @@
+= PLEASE NOTE
+
+This fork is still under development and does not yet support v1 of the Dropbox API.
+
 = Ruby Dropbox Gem
 
 An easy-to-use third-party interface to the RESTful Dropbox API.
