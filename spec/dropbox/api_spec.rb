@@ -537,6 +537,159 @@ describe Dropbox::API do
     end
   end
 
+  describe "#upload_put" do
+    before :each do
+      stub_for_upload_testing
+    end
+
+    it "should check the path" do
+      path = "dest/path"
+      Dropbox.should_receive(:check_path).once.with(path).and_return(path)
+      @session.upload(__FILE__, path)
+    end
+
+    describe "parameters" do
+      describe "given a File object" do
+        before :each do
+          @file = File.open(__FILE__)
+        end
+
+        after :each do
+          @file.close
+        end
+
+        it "should use the File object as the stream" do
+          UploadIO.should_receive(:new).once.with(@file, anything, File.basename(__FILE__))
+          @session.upload @file, 'remote/'
+        end
+
+        it "should accept a custom file name via the :as parameter" do
+          UploadIO.should_receive(:new).once.with(@file, anything, 'myfile.txt')
+          @session.upload @file, 'remote/', :as => 'myfile.txt'
+        end
+      end
+
+      describe "given a String object" do
+        before :each do
+          @string = __FILE__
+          @file = File.new(__FILE__)
+          File.should_receive(:new).once.with(@string).and_return(@file)
+        end
+
+        it "should use the file at that path as the stream" do
+          UploadIO.should_receive(:new).once.with(@file, anything, File.basename(__FILE__))
+          @session.upload @string, 'remote/'
+        end
+
+        it "should accept a custom file name via the :as parameter" do
+          UploadIO.should_receive(:new).once.with(@file, anything, 'myfile.txt')
+          @session.upload @string, 'remote/', :as => 'myfile.txt'
+        end
+      end
+
+      it "should raise an error if given an unknown argument type" do
+        lambda { @session.upload 123, 'path' }.should raise_error(ArgumentError)
+      end
+
+      describe "given a StringIO object and a filename" do
+        before :each do
+          @string_io = StringIO.new("test123")
+          @filename = "test.txt"
+        end
+
+        it "should use the StringIO as the stream and take filename from the options" do
+          UploadIO.should_receive(:new).once.with(@string_io, anything, @filename)
+          @session.upload @string_io, 'remote/', :as => @filename
+        end
+
+        it "should raise an exception if the :as option is not specified" do
+          lambda { @session.upload @string_io, 'remote/' }.should raise_error(ArgumentError)
+        end
+      end
+
+      it "should accept a custom read timeout" do
+        @http.should_receive(:read_timeout=).once.with(10)
+        @session.upload StringIO.new('test123'), 'remote/', :as => 'name.txt', :timeout => 10
+      end
+    end
+
+    describe "request" do
+      before :each do
+        @request = mock('Net::HTTPRequest')
+        @request.stub!(:[]=)
+        @request.stub!(:set_form_data)
+      end
+
+      it "should strip a leading slash from the remote path" do
+        Net::HTTP::Put.should_receive(:new).once do |*args|
+          args.first.should eql("/#{Dropbox::VERSION}/files_put/sandbox/path")
+          @request
+        end
+
+        @session.upload_put __FILE__, '/path'
+      end
+
+      it "should strip a leading slash from the remote path" do
+        Net::HTTP::Put.should_receive(:new).once do |*args|
+          args.first.should eql("/#{Dropbox::VERSION}/files_put/sandbox/path")
+          @request
+        end
+
+        @session.upload_put __FILE__, '/path'
+      end
+
+      it "should call the files API method" do
+        Net::HTTP::Put.should_receive(:new).once do |*args|
+          args.first.should eql("/#{Dropbox::VERSION}/files_put/sandbox/path/to/file")
+          @request
+        end
+
+        @session.upload_put __FILE__, 'path/to/file'
+      end
+
+      it "should use the sandbox root if specified" do
+        Net::HTTP::Put.should_receive(:new).once do |*args|
+          args.first.should eql("/#{Dropbox::VERSION}/files_put/sandbox/path/to/file")
+          @request
+        end
+
+        @session.upload_put __FILE__, 'path/to/file', :mode => :sandbox
+      end
+
+      it "should set the authorization content header to the signed OAuth request" do
+        Net::HTTP::Put.should_receive(:new).and_return(@request)
+        @request.should_receive(:set_form_data).once.with(hash_including('authorization' => 'Oauth, test'))
+        @session.upload_put __FILE__, 'blah'
+      end
+
+      it "should create a PUT request with the 'file' parameter set to the file of type application/octet-stream" do
+        Net::HTTP::Put.should_receive(:new).and_return(@request)
+        @request.should_receive(:set_form_data).once.with(hash_including('file' => an_instance_of(UploadIO))).and_return(@request)
+
+        @session.upload_put __FILE__, 'hello'
+      end
+
+      it "should send the request" do
+        uri = URI.parse(Dropbox::ALTERNATE_SSL_HOSTS['files'])
+        @http = mock('Net::HTTP', :request => @response, :'use_ssl=' => true)
+        Net::HTTP.stub!(:new).and_return(@http)
+
+        @session.upload_put __FILE__, 'test'
+      end
+
+      it "should send an SSL request" do
+        @session = Dropbox::Session.new('foo', 'bar')
+        @session.authorize
+
+        uri = URI.parse(Dropbox::ALTERNATE_SSL_HOSTS['files'])
+        @http = mock('Net::HTTP', :request => @response, :'use_ssl=' => true)
+        Net::HTTP.stub!(:new).and_return(@http)
+
+        @session.upload_put __FILE__, 'test'
+      end
+    end
+  end
+
   describe "#upload" do
     before :each do
       stub_for_upload_testing

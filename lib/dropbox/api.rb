@@ -85,7 +85,6 @@ module Dropbox
       path = path.sub(/^\//, '')
       rest = Dropbox.check_path(path).split('/')
       api_body :get, 'files', root(options), *rest
-      #TODO streaming, range queries
     end
 
     # Downloads a minimized thumbnail for a file. Pass the path to the file,
@@ -130,6 +129,43 @@ module Dropbox
       end
     end
 
+    def upload_put(local_file, remote_path, options={})
+      file, name, local_path = parse_local_file(local_file, options)
+      name = File.basename(options.delete(:as)) if options[:as]
+      remote_path = remote_path.sub(/^\//, '')
+      remote_path = Dropbox.check_path(remote_path).split('/')
+
+      url = Dropbox.api_url('files_put', root(options), *remote_path)
+      uri = URI.parse(url)
+
+      oauth_request = Net::HTTP::Post.new(uri.path)
+      oauth_request.set_form_data('file' => name)
+
+      alternate_host_session = clone_with_host(Dropbox::ALTERNATE_SSL_HOSTS['files'])
+      alternate_host_session.instance_variable_get(:@consumer).sign!(oauth_request, @access_token)
+      oauth_signature = oauth_request.to_hash['authorization']
+
+      request = Net::HTTP::Put.new(uri.path)
+      request.set_form_data('file'          => UploadIO.new( file, 'application/octet-stream', name),
+                            'authorization' => oauth_signature.join(', '))
+
+      proxy = URI.parse(@proxy || "")
+      http = Net::HTTP::Proxy(proxy.host, proxy.port).new(uri.host, uri.port)
+      http.use_ssl = true
+      http.read_timeout = options[:timeout] if options[:timeout]
+      response = http.request(request)
+
+      if response.kind_of?(Net::HTTPSuccess) then
+        begin
+          return JSON.parse(response.body).symbolize_keys_recursively.to_struct_recursively
+        rescue JSON::ParserError
+          raise ParseError.new(uri.to_s, response)
+        end
+      else
+        raise UnsuccessfulResponseError.new(uri.to_s, response)
+      end
+    end
+
     # Uploads a file to a path relative to the configured mode's root. The
     # +remote_path+ parameter is taken to be the path portion _only_; the name
     # of the remote file will be identical to that of the local file. You can
@@ -156,27 +192,7 @@ module Dropbox
     #  session.upload open('http://www.example.com/index.html'), :as => 'example.html' # upload from a StringIO stream (requires open-uri)
 
     def upload(local_file, remote_path, options={})
-      if local_file.kind_of?(File) or local_file.kind_of?(Tempfile) then
-        file = local_file
-        name = local_file.respond_to?(:original_filename) ? local_file.original_filename : File.basename(local_file.path)
-        local_path = local_file.path
-      elsif local_file.kind_of?(String) then
-        file = File.new(local_file)
-        name = File.basename(local_file)
-        local_path = local_file
-      elsif local_file.kind_of?(StringIO) then
-        raise(ArgumentError, "Must specify the :as option when uploading from StringIO") unless options[:as]
-        file = local_file
-        local_path = options[:as]
-
-        # hack for bug in UploadIO
-        class << file
-          attr_accessor :path
-        end
-        file.path = local_path
-      else
-        raise ArgumentError, "local_file must be a File, StringIO, or file path"
-      end
+      file, name, local_path = parse_local_file(local_file, options)
 
       name = File.basename(options.delete(:as)) if options[:as]
 
@@ -193,11 +209,7 @@ module Dropbox
       alternate_host_session.instance_variable_get(:@consumer).sign!(oauth_request, @access_token)
       oauth_signature = oauth_request.to_hash['authorization']
 
-      request = Net::HTTP::Post::Multipart.new(uri.path,
-                                               'file' => UploadIO.new(
-                                                       file,
-                                                       'application/octet-stream',
-                                                       name))
+      request = Net::HTTP::Post::Multipart.new(uri.path, 'file' => UploadIO.new( file, 'application/octet-stream', name))
       request['authorization'] = oauth_signature.join(', ')
 
       proxy = URI.parse(@proxy || "")
@@ -336,6 +348,7 @@ module Dropbox
     #
     #  session.move 'path/to/file', 'path/to/new_name'
 
+
     def rename(path, new_name, options={})
       raise ArgumentError, "Names cannot have slashes in them" if new_name.include?('/')
       path = path.sub(/\/$/, '')
@@ -465,6 +478,27 @@ module Dropbox
     end
 
     private
+
+    def parse_local_file(local_file, options)
+      if local_file.kind_of?(File) or local_file.kind_of?(Tempfile) then
+        file = local_file
+        name = local_file.respond_to?(:original_filename) ? local_file.original_filename : File.basename(local_file.path)
+        local_path = local_file.path
+      elsif local_file.kind_of?(String) then
+        file = File.new(local_file)
+        name = File.basename(local_file)
+        local_path = local_file
+      elsif local_file.kind_of?(StringIO) then
+        raise(ArgumentError, "Must specify the :as option when uploading from StringIO") unless options[:as]
+        file = local_file
+        local_path = options[:as]
+        class << file; attr_accessor :path; end # hack for bug in UploadIO
+        file.path = local_path
+      else
+        raise ArgumentError, "local_file must be a File, StringIO, or file path"
+      end
+      [file, name, local_path]
+    end
 
     def parse_metadata(hsh)
       hsh[:modified] = Time.parse(hsh[:modified]) if hsh[:modified]
