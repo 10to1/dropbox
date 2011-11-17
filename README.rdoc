@@ -1,6 +1,6 @@
-= PLEASE NOTE
+= Please Note!
 
-This fork is still under development and does not yet support v1 of the Dropbox API.
+This fork is largely unfinished. In the meantime, check out: https://github.com/futuresimple/dropbox-api
 
 = Ruby Dropbox Gem
 
